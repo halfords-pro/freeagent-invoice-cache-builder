@@ -1,0 +1,6 @@
+{
+  "api_base_url": "https://api.freeagent.com/v2",
+  "oauth_token": "YOUR_OAUTH_TOKEN_HERE",
+  "per_page": 50,
+  "nested_invoice_items": true
+}
