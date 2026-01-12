@@ -9,6 +9,7 @@ Designed to run via cron job every few minutes, processing 50 invoices at a time
 import argparse
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -235,20 +236,76 @@ def fetch_invoices(url: str, config: Dict) -> Tuple[Dict, Dict, Dict]:
         sys.exit(1)
 
 
-def parse_link_header(link_header: Optional[str]) -> Optional[int]:
+def get_header_case_insensitive(headers: Dict, header_name: str) -> Optional[str]:
+    """
+    Get header value using case-insensitive lookup
+
+    HTTP headers are case-insensitive, but dict.get() is case-sensitive.
+    This helper finds the header regardless of case.
+
+    Args:
+        headers: Dictionary of HTTP headers
+        header_name: Header name to search for (e.g., 'Link', 'X-Total-Count')
+
+    Returns:
+        Header value if found, None otherwise
+    """
+    header_name_lower = header_name.lower()
+    for key, value in headers.items():
+        if key.lower() == header_name_lower:
+            return value
+    return None
+
+
+def calculate_pages_from_count(total_count: int, per_page: int) -> int:
+    """
+    Calculate total pages from X-Total-Count header
+
+    FreeAgent API documentation recommends using X-Total-Count to determine
+    the number of pages: divide total count by per_page and round up.
+
+    Args:
+        total_count: Total number of records (from X-Total-Count header)
+        per_page: Number of items per page
+
+    Returns:
+        Total number of pages (at least 1)
+    """
+    if per_page <= 0:
+        logger.warning(f"Invalid per_page value: {per_page}, defaulting to 1 page")
+        return 1
+
+    if total_count <= 0:
+        return 1
+
+    return math.ceil(total_count / per_page)
+
+
+def parse_link_header(headers: Dict) -> Optional[int]:
     """
     Parse RFC 5988 Link header to extract total pages
+
+    Uses case-insensitive header lookup to find the Link header,
+    then extracts the page number from rel="last" link.
 
     Example Link header:
     <https://api.freeagent.com/v2/invoices?page=2>; rel="next",
     <https://api.freeagent.com/v2/invoices?page=1860>; rel="last"
 
+    Args:
+        headers: Dictionary of HTTP response headers
+
     Returns:
         Total number of pages, or None if not found
     """
+    # Use case-insensitive lookup for Link header
+    link_header = get_header_case_insensitive(headers, 'Link')
+
     if not link_header:
-        logger.debug("No Link header found, assuming single page")
-        return 1
+        logger.debug("No Link header found in response")
+        return None
+
+    logger.debug(f"Link header: {link_header}")
 
     try:
         # Parse link header for rel="last"
@@ -257,8 +314,8 @@ def parse_link_header(link_header: Optional[str]) -> Optional[int]:
         match = re.search(pattern, link_header)
 
         if not match:
-            logger.debug("No rel='last' found in Link header, assuming single page")
-            return 1
+            logger.debug("No rel='last' found in Link header")
+            return None
 
         last_url = match.group(1)
         logger.debug(f"Found last page URL: {last_url}")
@@ -268,16 +325,65 @@ def parse_link_header(link_header: Optional[str]) -> Optional[int]:
         params = parse_qs(parsed.query)
 
         if 'page' not in params:
-            logger.error("Link header found but no 'page' parameter in URL")
+            logger.warning("Link header found but no 'page' parameter in URL")
             return None
 
         total_pages = int(params['page'][0])
-        logger.debug(f"Parsed total_pages: {total_pages}")
+        logger.info(f"Determined total_pages from Link header: {total_pages}")
         return total_pages
 
     except Exception as e:
         logger.error(f"Error parsing Link header: {e}")
         return None
+
+
+def determine_total_pages(headers: Dict, per_page: int, has_data: bool) -> Optional[int]:
+    """
+    Determine total pages using multiple methods with fallback logic
+
+    This function tries multiple approaches to determine pagination:
+    1. Parse Link header for rel="last" (primary method)
+    2. Calculate from X-Total-Count header (fallback)
+    3. Return None if all methods fail
+
+    Args:
+        headers: Dictionary of HTTP response headers
+        per_page: Number of items per page
+        has_data: Whether the response contains any data
+
+    Returns:
+        Total number of pages, or None if it cannot be determined
+    """
+    # Layer 1: Try Link header (RFC 5988 standard)
+    logger.debug("Attempting to determine total pages from Link header...")
+    total_pages = parse_link_header(headers)
+
+    if total_pages and total_pages > 0:
+        logger.info(f"Total pages determined from Link header: {total_pages}")
+        return total_pages
+
+    # Layer 2: Try X-Total-Count header (FreeAgent recommended method)
+    logger.debug("Link header method failed, trying X-Total-Count header...")
+    total_count_str = get_header_case_insensitive(headers, 'X-Total-Count')
+
+    if total_count_str:
+        try:
+            total_count = int(total_count_str)
+            logger.debug(f"X-Total-Count header: {total_count}")
+            total_pages = calculate_pages_from_count(total_count, per_page)
+            logger.info(f"Total pages calculated from X-Total-Count: {total_pages} (count={total_count}, per_page={per_page})")
+            return total_pages
+        except ValueError as e:
+            logger.warning(f"Invalid X-Total-Count value '{total_count_str}': {e}")
+
+    # Layer 3: No pagination info found
+    if has_data:
+        logger.warning("Could not determine total pages from headers. Defaulting to 1 page.")
+        logger.warning("Available headers: " + ", ".join(headers.keys()))
+        return 1
+    else:
+        logger.debug("No data in response, assuming single empty page")
+        return 1
 
 
 def extract_id_from_url(url: str) -> str:
@@ -409,12 +515,15 @@ def main():
 
     data, headers, config = fetch_invoices(url, config)
 
-    # Parse Link header to get total pages
-    link_header = headers.get('Link')
-    total_pages = parse_link_header(link_header)
+    # Process items to check if there's data
+    invoices = data.get('invoices', [])
+    has_data = len(invoices) > 0
+
+    # Determine total pages using multiple methods with fallback
+    total_pages = determine_total_pages(headers, state['per_page'], has_data)
 
     if total_pages is None:
-        logger.error("Failed to parse Link header. Cannot determine total pages. Exiting.")
+        logger.error("Failed to determine total pages from any method. Cannot continue. Exiting.")
         sys.exit(1)
 
     # Update total_pages in state (moving target)
@@ -424,8 +533,7 @@ def main():
     progress = calculate_progress(next_page, total_pages)
     logger.info(f"Processing page {next_page} of {total_pages} ({progress} complete)")
 
-    # Process items
-    invoices = data.get('invoices', [])
+    # Process items (already extracted above for pagination check)
 
     if not invoices:
         logger.info(f"No invoices found on page {next_page}")
