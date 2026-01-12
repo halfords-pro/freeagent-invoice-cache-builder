@@ -99,8 +99,9 @@ For ~93,000 invoices at 50 per page (~1,860 pages):
 ├── config.json              # API credentials (gitignored)
 ├── config.json.example      # Configuration template
 ├── state.json               # Progress tracking (gitignored)
-├── invoices/                # Downloaded invoice JSON files
-├── credit_notes/            # Downloaded credit note JSON files
+├── data/                    # Downloaded data (gitignored)
+│   ├── invoices/            # Invoice JSON files
+│   └── credit_notes/        # Credit note JSON files
 ├── logs/                    # Cron job logs
 ├── pyproject.toml           # uv dependencies
 ├── .gitignore              # Git ignore rules
@@ -165,12 +166,12 @@ uv run python download_invoices.py --initialise
 
 Downloaded files use the following naming convention:
 
-- **Invoices**: `invoices/invoice_{ID}.json`
-- **Credit Notes**: `credit_notes/credit_note_{ID}.json`
+- **Invoices**: `data/invoices/invoice_{ID}.json`
+- **Credit Notes**: `data/credit_notes/credit_note_{ID}.json`
 
 Where `{ID}` is extracted from the URL field:
-- `https://api.freeagent.com/v2/invoices/694948` → `invoice_694948.json`
-- `https://api.freeagent.com/v2/credit_notes/694947` → `credit_note_694947.json`
+- `https://api.freeagent.com/v2/invoices/694948` → `data/invoices/invoice_694948.json`
+- `https://api.freeagent.com/v2/credit_notes/694947` → `data/credit_notes/credit_note_694947.json`
 
 ## Error Handling
 

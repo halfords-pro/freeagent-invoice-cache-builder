@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 # Constants
 CONFIG_FILE = "config.json"
 STATE_FILE = "state.json"
-INVOICES_DIR = "invoices"
-CREDIT_NOTES_DIR = "credit_notes"
+INVOICES_DIR = "data/invoices"
+CREDIT_NOTES_DIR = "data/credit_notes"
 
 
 def load_config() -> Dict:
