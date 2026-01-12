@@ -46,7 +46,7 @@ def load_config() -> Dict:
             config = json.load(f)
 
         # Validate required fields
-        required_fields = ['api_base_url', 'oauth_token', 'per_page', 'nested_invoice_items']
+        required_fields = ['api_base_url', 'access_token', 'refresh_token', 'client_id', 'client_secret', 'per_page', 'nested_invoice_items']
         missing_fields = [field for field in required_fields if field not in config]
         if missing_fields:
             logger.error(f"Missing required fields in config: {', '.join(missing_fields)}")
@@ -59,6 +59,55 @@ def load_config() -> Dict:
     except Exception as e:
         logger.error(f"Error loading configuration: {e}")
         sys.exit(1)
+
+
+def refresh_access_token(config: Dict) -> bool:
+    """
+    Refresh expired access token using refresh token
+
+    Updates config dict in-place with new tokens.
+    Returns True on success, False on failure.
+    """
+    token_endpoint = "https://api.freeagent.com/v2/token_endpoint"
+
+    payload = {
+        'grant_type': 'refresh_token',
+        'refresh_token': config['refresh_token'],
+        'client_id': config['client_id'],
+        'client_secret': config['client_secret']
+    }
+
+    try:
+        logger.info("Refreshing expired access token...")
+        response = requests.post(token_endpoint, data=payload, timeout=30)
+
+        if response.status_code != 200:
+            logger.error(f"Token refresh failed: {response.status_code} - {response.text}")
+            return False
+
+        data = response.json()
+
+        # Update config with new tokens
+        config['access_token'] = data['access_token']
+        config['refresh_token'] = data['refresh_token']
+
+        logger.info("Access token refreshed successfully")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error refreshing token: {e}")
+        return False
+
+
+def save_config(config: Dict) -> None:
+    """Persist updated config (including refreshed tokens) to config.json"""
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+        logger.debug("Config saved successfully")
+    except Exception as e:
+        logger.error(f"Error saving config: {e}")
+        # Don't exit - script can continue with in-memory tokens
 
 
 def load_state() -> Dict:
@@ -118,15 +167,15 @@ def build_api_url(base_url: str, page: int, per_page: int, nested: bool) -> str:
     return url
 
 
-def fetch_invoices(url: str, token: str) -> Tuple[Dict, Dict]:
+def fetch_invoices(url: str, config: Dict) -> Tuple[Dict, Dict, Dict]:
     """
-    Make API call to fetch invoices
+    Make API call to fetch invoices, with automatic token refresh on 401
 
     Returns:
-        Tuple of (response_data, response_headers)
+        Tuple of (response_data, response_headers, updated_config)
     """
     headers = {
-        'Authorization': f'Bearer {token}',
+        'Authorization': f'Bearer {config["access_token"]}',
         'Accept': 'application/json',
         'User-Agent': 'FreeAgent-Invoice-Cache-Builder/0.1.0'
     }
@@ -142,8 +191,27 @@ def fetch_invoices(url: str, token: str) -> Tuple[Dict, Dict]:
 
         # Handle authentication errors
         if response.status_code == 401:
-            logger.error("Authentication failed (401). Check your oauth_token in config.json")
-            sys.exit(1)
+            logger.warning("Authentication failed (401). Attempting to refresh token...")
+
+            # Try to refresh token
+            if refresh_access_token(config):
+                # Save updated tokens to disk
+                save_config(config)
+
+                # Retry request with new access token
+                headers['Authorization'] = f'Bearer {config["access_token"]}'
+                response = requests.get(url, headers=headers, timeout=30)
+
+                # Check if retry succeeded
+                if response.status_code == 200:
+                    data = response.json()
+                    return data, dict(response.headers), config
+                else:
+                    logger.error(f"Request failed even after token refresh: {response.status_code}")
+                    sys.exit(1)
+            else:
+                logger.error("Token refresh failed. Check your refresh_token and client credentials.")
+                sys.exit(1)
 
         # Handle other errors
         if response.status_code != 200:
@@ -151,7 +219,7 @@ def fetch_invoices(url: str, token: str) -> Tuple[Dict, Dict]:
             sys.exit(1)
 
         data = response.json()
-        return data, dict(response.headers)
+        return data, dict(response.headers), config
 
     except requests.exceptions.Timeout:
         logger.error("API request timed out. Will retry on next cron run.")
@@ -324,7 +392,7 @@ def main():
         config['nested_invoice_items']
     )
 
-    data, headers = fetch_invoices(url, config['oauth_token'])
+    data, headers, config = fetch_invoices(url, config)
 
     # Parse Link header to get total pages
     link_header = headers.get('Link')

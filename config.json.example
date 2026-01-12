@@ -1,6 +1,9 @@
 {
   "api_base_url": "https://api.freeagent.com/v2",
-  "oauth_token": "YOUR_OAUTH_TOKEN_HERE",
+  "access_token": "YOUR_ACCESS_TOKEN_HERE",
+  "refresh_token": "YOUR_REFRESH_TOKEN_HERE",
+  "client_id": "YOUR_CLIENT_ID",
+  "client_secret": "YOUR_CLIENT_SECRET",
   "per_page": 50,
   "nested_invoice_items": true
 }

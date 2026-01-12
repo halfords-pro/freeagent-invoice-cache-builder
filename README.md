@@ -32,11 +32,14 @@ A Python script for incrementally downloading invoices and credit notes from the
    cp config.json.example config.json
    ```
 
-4. **Edit `config.json`** and add your FreeAgent OAuth token:
+4. **Edit `config.json`** and add your FreeAgent OAuth credentials:
    ```json
    {
      "api_base_url": "https://api.freeagent.com/v2",
-     "oauth_token": "YOUR_OAUTH_TOKEN_HERE",
+     "access_token": "YOUR_ACCESS_TOKEN_HERE",
+     "refresh_token": "YOUR_REFRESH_TOKEN_HERE",
+     "client_id": "YOUR_CLIENT_ID",
+     "client_secret": "YOUR_CLIENT_SECRET",
      "per_page": 50,
      "nested_invoice_items": true
    }
@@ -197,11 +200,11 @@ Copy the example config:
 ```bash
 cp config.json.example config.json
 ```
-Then edit with your OAuth token.
+Then edit with your OAuth credentials.
 
 ### "Authentication failed (401)"
 
-Check your `oauth_token` in `config.json` is valid.
+Check your `access_token` and `refresh_token` in `config.json` are valid. The script will automatically attempt to refresh expired access tokens.
 
 ### Progress seems stuck
 
