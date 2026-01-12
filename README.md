@@ -129,6 +129,7 @@ The `state.json` file tracks progress:
 - **status**: Either `"in_progress"` or `"catchup_complete"`
 - **current_page**: Last successfully processed page
 - **total_pages**: Total pages available (updated on each run)
+- **per_page**: Items per page (locked from config.json during initialization)
 - **completed_at**: Timestamp when catchup completed
 
 ## Monitoring Progress
