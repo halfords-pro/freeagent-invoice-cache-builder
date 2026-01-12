@@ -435,16 +435,16 @@ def save_item(data: Dict, item_type: str, item_id: str) -> None:
 
     # Check if file already exists (skip re-download)
     if os.path.exists(filepath):
-        logger.debug(f"Skipping {filename} (already exists)")
+        logger.info(f"Skipped (exists): {filepath}")
         return
 
     # Write file
     try:
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
-        logger.debug(f"Saved {filename}")
+        logger.info(f"Saved: {filepath}")
     except Exception as e:
-        logger.error(f"Error saving {filename}: {e}")
+        logger.error(f"Error saving {filepath}: {e}")
         # Continue with other items
 
 
