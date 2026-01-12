@@ -139,13 +139,13 @@ def save_state(state: Dict) -> None:
         sys.exit(1)
 
 
-def initialise_state() -> None:
+def initialise_state(config: Dict) -> None:
     """Create fresh state.json with --initialise flag"""
     default_state = {
         "status": "in_progress",
         "current_page": 0,
         "total_pages": None,
-        "per_page": 50,
+        "per_page": config['per_page'],
         "last_run": None,
         "completed_at": None
     }
@@ -365,12 +365,27 @@ def main():
 
     # Handle --initialise flag
     if args.initialise:
-        initialise_state()
+        config = load_config()
+        initialise_state(config)
         return
 
     # Load configuration and state
     config = load_config()
     state = load_state()
+
+    # Ensure per_page exists in state (backward compatibility)
+    if 'per_page' not in state:
+        logger.warning("State missing per_page, using value from config")
+        state['per_page'] = config['per_page']
+        save_state(state)
+
+    # Warn if config per_page differs from state per_page
+    if state['per_page'] != config['per_page']:
+        logger.warning(
+            f"Config per_page ({config['per_page']}) differs from state per_page "
+            f"({state['per_page']}). Using state value for consistency. "
+            f"To change, re-initialize with --initialise"
+        )
 
     # Check completion status
     if state.get("status") == "catchup_complete":
@@ -388,7 +403,7 @@ def main():
     url = build_api_url(
         config['api_base_url'],
         next_page,
-        config['per_page'],
+        state['per_page'],
         config['nested_invoice_items']
     )
 
